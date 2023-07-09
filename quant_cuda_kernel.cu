@@ -30,6 +30,29 @@ __device__ double atomicAdd(
 }
 #endif
 
+//https://github.com/qwopqwop200/GPTQ-for-LLaMa/issues/233#issuecomment-1546661994
+#ifdef __CUDA_ARCH__
+#if __CUDA_ARCH__ < 700
+// adapted from https://github.com/torch/cutorch/blob/master/lib/THC/THCAtomics.cuh
+__device__ __forceinline__ void atomicAdd(__half* address, c10::Half val) {
+    unsigned int *address_as_ui = reinterpret_cast<unsigned int *>(reinterpret_cast<char *>(address) - (reinterpret_cast<size_t>(address) & 2));
+    unsigned int old = *address_as_ui;
+    unsigned int assumed;
+
+    do {
+        assumed = old;
+        unsigned short hsum = reinterpret_cast<size_t>(address) & 2 ? (old >> 16) : (old & 0xffff);
+        hsum += val;
+        old = reinterpret_cast<size_t>(address) & 2
+                 ? (old & 0xffff) | (hsum << 16)
+                 : (old & 0xffff0000) | hsum;
+        old = atomicCAS(address_as_ui, assumed, old);
+
+    // Note: uses integer comparison to avoid hang in case of NaN (since NaN != NaN)
+    } while (assumed != old);
+}
+#endif
+#endif
 template <typename scalar_t>
 __global__ void VecQuant2MatMulKernel(
     const  scalar_t* __restrict__ vec,
