@@ -1,0 +1,82 @@
+---
+name: buildDockerImage
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+  push:
+    branches:
+      - cuda
+    paths:
+      - .
+      - .github/workflows/buildDockerImage.yml
+  pull_request:
+    branches:
+      - cuda
+    paths:
+      - .
+      - .github/workflows/buildDockerImage.yml
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: brandonmcclure/GPTQ-for-LLaMa
+  JUST_IMAGE_NAME: GPTQ-for-LLaMa
+
+jobs:
+  buildDockerImage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to the Github Container registry
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          registry: ghcr.io
+
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: bmcclure89
+
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96
+        with:
+          tags: |
+            type=ref,event=pr
+            type=ref,event=branch
+            type=sha,format=long
+            type=raw,value=latest
+          images: |
+            ghcr.io/brandonmcclure/GPTQ-for-LLaMa/${{ env.IMAGE_NAME }}
+            bmcclure89/${{ env.JUST_IMAGE_NAME }}
+      - name: Build Docker image (non cuda branch)
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        if: github.ref != 'refs/heads/cuda'
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          push: false
+
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }} 
+      - name: Build and push Docker image (cuda branch)
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        if: github.ref == 'refs/heads/cuda'
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
